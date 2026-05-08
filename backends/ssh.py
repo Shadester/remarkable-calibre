@@ -1,4 +1,3 @@
-import base64
 import json
 import os
 import shlex
@@ -116,25 +115,29 @@ class SSHBackend(Backend):
                 'formatVersion': 1,
             }, indent=2).encode()
 
-            # SCP the book file
-            ok, err = _run_scp(self.host, self.password, file_path, f'{remote_base}.{ext}')
-            if not ok:
-                return Result(ok=False, error=f'scp failed: {err}')
+            meta_tmp = tempfile.NamedTemporaryFile('wb', suffix='.metadata', delete=False)
+            meta_tmp.write(metadata_bytes)
+            meta_tmp.close()
+            content_tmp = tempfile.NamedTemporaryFile('wb', suffix='.content', delete=False)
+            content_tmp.write(content_bytes)
+            content_tmp.close()
+            try:
+                ok, err = _run_scp(self.host, self.password, file_path, f'{remote_base}.{ext}')
+                if not ok:
+                    return Result(ok=False, error=f'scp failed: {err}')
 
-            # Write both JSON sidecars and restart xochitl in a single SSH connection
-            meta_b64 = base64.b64encode(metadata_bytes).decode()
-            content_b64 = base64.b64encode(content_bytes).decode()
-            meta_path = shlex.quote(f'{remote_base}.metadata')
-            content_path = shlex.quote(f'{remote_base}.content')
-            compound = (
-                f'echo {shlex.quote(meta_b64)} | base64 -d > {meta_path} && '
-                f'echo {shlex.quote(content_b64)} | base64 -d > {content_path} && '
-                f'systemctl restart xochitl'
-            )
-            ok, err = _run_ssh(self.host, self.password, compound, timeout=20)
-            if not ok:
-                return Result(ok=False, error=f'post-copy setup failed: {err}')
+                ok, err = _run_scp(self.host, self.password, meta_tmp.name, f'{remote_base}.metadata')
+                if not ok:
+                    return Result(ok=False, error=f'metadata upload failed: {err}')
 
+                ok, err = _run_scp(self.host, self.password, content_tmp.name, f'{remote_base}.content')
+                if not ok:
+                    return Result(ok=False, error=f'content upload failed: {err}')
+            finally:
+                os.unlink(meta_tmp.name)
+                os.unlink(content_tmp.name)
+
+            _run_ssh(self.host, self.password, 'systemctl restart xochitl', timeout=10)
             return Result(ok=True)
         except Exception as e:
             return Result(ok=False, error=str(e))
