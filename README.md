@@ -32,8 +32,18 @@ Go to **Preferences → Plugins → reMarkable → Customize**:
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| Host | `10.11.99.1` | IP of the tablet's USB web interface. Override if you're using an SSH tunnel or custom network setup. |
-| Connection timeout | 2 s | How long to wait when probing the device. Increase on slow USB connections. |
+| Connection type | USB web interface | How files are delivered to the tablet (see below). |
+| Tablet host | `10.11.99.1` | IP address of the tablet over USB. Override for SSH tunnels or custom network setups. |
+| Connection timeout | 2 s | How long to wait when probing the device. Increase on slow connections. |
+| SSH password | _(empty)_ | Required when using the SSH backend (see below). |
+
+### Connection types
+
+**USB web interface** (default): Uses the tablet's built-in HTTP upload endpoint. Requires **USB web interface** to be enabled on the tablet (Settings → Storage → USB web interface). No password needed.
+
+**SSH (direct file copy)**: Copies files directly into the tablet's document store over SSH and restarts the viewer. Requires **developer mode** enabled on the tablet. Find the SSH password under **Settings → Help → Copyrights and licenses** (scroll to the GPL Notice section). Requires `paramiko` to be available in Calibre's Python environment.
+
+> **Note:** After switching connection type, reconnect the device (eject and re-plug) for the change to take effect.
 
 ## Building from Source
 

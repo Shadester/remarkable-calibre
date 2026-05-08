@@ -136,6 +136,34 @@ class TestUploadBooks(unittest.TestCase):
             os.unlink(f)
 
 
+class TestBackendSelection(unittest.TestCase):
+
+    def setUp(self):
+        self.driver = RemarkableDevice()
+
+    def test_backend_is_usb_web_by_default(self):
+        import config
+        config.prefs['connection_type'] = 'usb_web'
+        from backends.usb_web import USBWebBackend
+        self.assertIsInstance(self.driver._backend(), USBWebBackend)
+
+    def test_backend_is_ssh_when_configured(self):
+        import config
+        config.prefs['connection_type'] = 'ssh'
+        config.prefs['ssh_password'] = 'pw'
+        from backends.ssh import SSHBackend
+        self.assertIsInstance(self.driver._backend(), SSHBackend)
+        config.prefs['connection_type'] = 'usb_web'  # restore
+
+    def test_set_progress_reporter_stores_callback(self):
+        sentinel = object()
+        self.driver.set_progress_reporter(sentinel)
+        self.assertIs(self.driver.report_progress, sentinel)
+
+    def test_set_progress_reporter_does_not_raise(self):
+        self.driver.set_progress_reporter(None)  # should not raise
+
+
 class TestMiscMethods(unittest.TestCase):
 
     def setUp(self):

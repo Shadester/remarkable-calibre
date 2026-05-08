@@ -44,16 +44,26 @@ class RemarkableDevice(DevicePlugin):
     # Detection                                                            #
     # ------------------------------------------------------------------ #
 
-    def _probe(self):
+    def _backend(self):
         from backends.usb_web import USBWebBackend
+        from backends.ssh import SSHBackend
         from config import prefs
+        if prefs.get('connection_type', 'usb_web') == 'ssh':
+            return SSHBackend(
+                host=prefs['host'],
+                password=prefs.get('ssh_password', ''),
+                timeout=prefs['connect_timeout_seconds'],
+            )
+        return USBWebBackend(
+            host=prefs['host'],
+            timeout=prefs['connect_timeout_seconds'],
+        )
+
+    def _probe(self):
         now = time.monotonic()
         if now - self._last_probe_time < self._PROBE_INTERVAL:
             return self._last_probe_ok
-        result = USBWebBackend(
-            host=prefs['host'],
-            timeout=prefs['connect_timeout_seconds'],
-        ).check_connection()
+        result = self._backend().check_connection()
         self._last_probe_time = now
         self._last_probe_ok = result.ok
         return result.ok
@@ -77,6 +87,9 @@ class RemarkableDevice(DevicePlugin):
 
     def reset(self, key='-1', log_packets=False, report_progress=None, detected_device=None):
         self.report_progress = report_progress if report_progress else lambda x, y: x
+
+    def set_progress_reporter(self, report_progress):
+        self.report_progress = report_progress
 
     def open(self, connected_device, library_uuid):
         pass
@@ -115,12 +128,7 @@ class RemarkableDevice(DevicePlugin):
         return []
 
     def upload_books(self, files, names, on_card=None, end_session=True, metadata=None):
-        from backends.usb_web import USBWebBackend
-        from config import prefs
-        backend = USBWebBackend(
-            host=prefs['host'],
-            timeout=prefs['connect_timeout_seconds'],
-        )
+        backend = self._backend()
         locations = []
         for file_path, name in zip(files, names):
             result = backend.upload(file_path, name)

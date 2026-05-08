@@ -19,6 +19,7 @@ for _mod in [
     'calibre.devices.usbms.books',
     'qt',
     'qt.core',
+    'paramiko',
 ]:
     sys.modules.setdefault(_mod, MagicMock())
 
@@ -46,4 +47,6 @@ import config as _config_mod
 _config_mod.prefs = {
     'host': '10.11.99.1',
     'connect_timeout_seconds': 2,
+    'connection_type': 'usb_web',
+    'ssh_password': '',
 }
