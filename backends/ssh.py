@@ -109,7 +109,7 @@ class SSHBackend(Backend):
         except Exception as e:
             return Result(ok=False, error=str(e))
 
-    def upload(self, file_path: str, filename: str) -> Result:
+    def upload(self, file_path: str, filename: str, title: str = None) -> Result:
         if not self._ssh_available():
             return Result(ok=False, error='ssh not found in PATH')
         try:
@@ -119,7 +119,7 @@ class SSHBackend(Backend):
 
             doc_uuid = str(uuid.uuid4())
             remote_base = f'{_XOCHITL_DIR}/{doc_uuid}'
-            visible_name = os.path.splitext(filename)[0]
+            visible_name = title or os.path.splitext(filename)[0]
 
             metadata_bytes = json.dumps({
                 'visibleName': visible_name,

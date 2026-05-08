@@ -15,5 +15,5 @@ class Backend(ABC):
         """Return Result(ok=True) if the device is reachable."""
 
     @abstractmethod
-    def upload(self, file_path: str, filename: str) -> Result:
-        """Upload a file to the device. filename is the destination name shown on the device."""
+    def upload(self, file_path: str, filename: str, title: str = None) -> Result:
+        """Upload a file to the device. title overrides the visible name; falls back to filename stem."""

@@ -26,7 +26,7 @@ class USBWebBackend(Backend):
         except Exception as e:
             return Result(ok=False, error=str(e))
 
-    def upload(self, file_path: str, filename: str) -> Result:
+    def upload(self, file_path: str, filename: str, title: str = None) -> Result:
         try:
             with open(file_path, 'rb') as f:
                 content = f.read()

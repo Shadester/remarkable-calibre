@@ -145,8 +145,9 @@ class RemarkableDevice(DevicePlugin):
     def upload_books(self, files, names, on_card=None, end_session=True, metadata=None):
         backend = self._backend()
         locations = []
-        for file_path, name in zip(files, names):
-            result = backend.upload(file_path, name)
+        for i, (file_path, name) in enumerate(zip(files, names)):
+            title = metadata[i].title if metadata and i < len(metadata) else None
+            result = backend.upload(file_path, name, title=title)
             if not result.ok:
                 raise OSError(f'Upload of {name!r} failed: {result.error}')
             locations.append((name, None, None))
