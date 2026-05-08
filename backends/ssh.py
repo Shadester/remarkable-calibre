@@ -78,25 +78,28 @@ class SSHBackend(Backend):
         return shutil.which('ssh') is not None
 
     def list_books(self) -> list[dict]:
-        """Return a list of metadata dicts for all DocumentType entries in xochitl."""
+        """Return a list of dicts with uuid/visibleName for all non-deleted DocumentType entries."""
         if not self._ssh_available():
             return []
         try:
-            # Print all .metadata files as a JSON array on stdout
             cmd = (
-                'python3 -c "'
-                'import os, json, sys; '
-                r'docs = []; '
-                r'base = \"/home/root/.local/share/remarkable/xochitl\"; '
-                r'files = [f for f in os.listdir(base) if f.endswith(\".metadata\")]; '
-                r'[docs.append({\"uuid\": f[:-9], **json.load(open(os.path.join(base, f)))}) for f in files]; '
-                r'print(json.dumps([d for d in docs if not d.get(\"deleted\") and d.get(\"type\") == \"DocumentType\"]))'
-                '"'
+                'grep -rl "DocumentType" /home/root/.local/share/remarkable/xochitl/ | '
+                'while read f; do '
+                '  grep -q \'"deleted": true\' "$f" && continue; '
+                '  uuid=$(basename "$f" .metadata); '
+                '  name=$(grep "visibleName" "$f" | sed \'s/.*visibleName.*: *"//;s/".*//\'); '
+                '  printf "%s\\t%s\\n" "$uuid" "$name"; '
+                'done'
             )
             ok, out, err = _run_ssh_capture(self.host, self.password, cmd, timeout=15)
-            if not ok or not out.strip():
+            if not out.strip():
                 return []
-            return json.loads(out)
+            books = []
+            for line in out.splitlines():
+                parts = line.split('\t', 1)
+                if len(parts) == 2:
+                    books.append({'uuid': parts[0], 'visibleName': parts[1]})
+            return books
         except Exception:
             return []
 
