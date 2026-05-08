@@ -80,7 +80,7 @@ def test_upload_epub_calls_three_scp_then_ssh_restart(tmp_path):
     assert any('.metadata' in arg for arg in scp_calls[1])
     assert any('.content' in arg for arg in scp_calls[2])
     assert len(ssh_calls) == 1
-    assert 'systemctl restart xochitl' in ssh_calls[0][-1]
+    assert 'systemctl' in ssh_calls[0][-1] and 'restart xochitl' in ssh_calls[0][-1]
 
 
 def test_upload_metadata_json_content(tmp_path):

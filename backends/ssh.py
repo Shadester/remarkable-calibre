@@ -31,6 +31,19 @@ def _askpass_ctx(password: str):
     return env, f.name
 
 
+def _run_ssh_capture(host: str, password: str, command: str, timeout: int = 30) -> tuple[bool, str, str]:
+    """Run an SSH command and return (ok, stdout, stderr)."""
+    env, askpass = _askpass_ctx(password)
+    try:
+        r = subprocess.run(
+            ['ssh'] + _SSH_OPTS + [f'root@{host}', command],
+            env=env, capture_output=True, timeout=timeout,
+        )
+        return r.returncode == 0, r.stdout.decode(errors='replace'), r.stderr.decode(errors='replace')
+    finally:
+        os.unlink(askpass)
+
+
 def _run_ssh(host: str, password: str, command: str, timeout: int = 30) -> tuple[bool, str]:
     env, askpass = _askpass_ctx(password)
     try:
@@ -63,6 +76,29 @@ class SSHBackend(Backend):
 
     def _ssh_available(self) -> bool:
         return shutil.which('ssh') is not None
+
+    def list_books(self) -> list[dict]:
+        """Return a list of metadata dicts for all DocumentType entries in xochitl."""
+        if not self._ssh_available():
+            return []
+        try:
+            # Print all .metadata files as a JSON array on stdout
+            cmd = (
+                'python3 -c "'
+                'import os, json, sys; '
+                r'docs = []; '
+                r'base = \"/home/root/.local/share/remarkable/xochitl\"; '
+                r'files = [f for f in os.listdir(base) if f.endswith(\".metadata\")]; '
+                r'[docs.append({\"uuid\": f[:-9], **json.load(open(os.path.join(base, f)))}) for f in files]; '
+                r'print(json.dumps([d for d in docs if not d.get(\"deleted\") and d.get(\"type\") == \"DocumentType\"]))'
+                '"'
+            )
+            ok, out, err = _run_ssh_capture(self.host, self.password, cmd, timeout=15)
+            if not ok or not out.strip():
+                return []
+            return json.loads(out)
+        except Exception:
+            return []
 
     def check_connection(self) -> Result:
         if not self._ssh_available():
@@ -137,7 +173,18 @@ class SSHBackend(Backend):
                 os.unlink(meta_tmp.name)
                 os.unlink(content_tmp.name)
 
-            _run_ssh(self.host, self.password, 'systemctl restart xochitl', timeout=10)
+            # Ensure files are readable, then restart xochitl asynchronously.
+            # --no-block returns immediately; xochitl restarts in the background.
+            restart_cmd = (
+                f'sync && chmod 644 {shlex.quote(remote_base)}.epub '
+                f'{shlex.quote(remote_base)}.pdf '
+                f'{shlex.quote(remote_base)}.metadata '
+                f'{shlex.quote(remote_base)}.content 2>/dev/null; '
+                f'systemctl --no-block restart xochitl'
+            )
+            ok, err = _run_ssh(self.host, self.password, restart_cmd, timeout=10)
+            if not ok:
+                return Result(ok=False, error=f'xochitl restart failed: {err}')
             return Result(ok=True)
         except Exception as e:
             return Result(ok=False, error=str(e))

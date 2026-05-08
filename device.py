@@ -124,8 +124,23 @@ class RemarkableDevice(DevicePlugin):
     # ------------------------------------------------------------------ #
 
     def books(self, oncard=None, end_session=True):
-        from calibre.devices.usbms.books import BookList
-        return BookList(oncard, None, self.settings())
+        from calibre.devices.usbms.books import Book, BookList
+        bl = BookList(oncard, None, self.settings())
+        if oncard is not None:
+            return bl
+        backend = self._backend()
+        if not hasattr(backend, 'list_books'):
+            return bl
+        for entry in backend.list_books():
+            try:
+                book = Book('', entry.get('uuid', ''))
+                book.title = entry.get('visibleName', 'Unknown')
+                book.authors = ['Unknown']
+                book.path = entry.get('uuid', '')
+                bl.append(book)
+            except Exception:
+                continue
+        return bl
 
     def upload_books(self, files, names, on_card=None, end_session=True, metadata=None):
         backend = self._backend()
