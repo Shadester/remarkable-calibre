@@ -237,7 +237,11 @@ class RemarkableDevice(DevicePlugin):
                 raise OSError(f'Delete of {path!r} failed: {result.error}')
 
     def remove_books_from_metadata(self, paths, booklists):
-        pass
+        path_set = set(paths)
+        for bl in booklists:
+            for book in list(bl):
+                if getattr(book, 'lpath', None) in path_set or getattr(book, 'path', None) in path_set:
+                    bl.remove(book)
 
     def sync_booklists(self, booklists, end_session=True):
         import json as _json
