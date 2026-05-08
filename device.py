@@ -152,7 +152,8 @@ class RemarkableDevice(DevicePlugin):
         return os.path.join(config_dir, 'plugins', 'remarkable_books.json')
 
     def books(self, oncard=None, end_session=True):
-        from calibre.devices.usbms.books import Book, BookList, JsonCodec
+        import json as _json
+        from calibre.devices.usbms.books import Book, BookList
         bl = BookList(oncard, None, self.settings())
         if oncard is not None:
             return bl
@@ -162,11 +163,13 @@ class RemarkableDevice(DevicePlugin):
         try:
             cache_path = self._cache_path()
             if os.path.exists(cache_path):
-                cached_bl = BookList(None, None, self.settings())
                 with open(cache_path, 'rb') as f:
-                    JsonCodec().decode_from_file(f, cached_bl)
-                for b in cached_bl:
-                    cached[b.lpath] = b
+                    for item in _json.loads(f.read()):
+                        b = Book('', item['lpath'])
+                        b.uuid = item.get('uuid')
+                        b.title = item.get('title', '')
+                        b.authors = item.get('authors', [])
+                        cached[b.lpath] = b
         except Exception:
             pass
 
@@ -237,12 +240,17 @@ class RemarkableDevice(DevicePlugin):
         pass
 
     def sync_booklists(self, booklists, end_session=True):
-        from calibre.devices.usbms.books import JsonCodec
+        import json as _json
         try:
             cache_path = self._cache_path()
             os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+            data = [
+                {'lpath': b.lpath, 'uuid': getattr(b, 'uuid', None),
+                 'title': getattr(b, 'title', ''), 'authors': getattr(b, 'authors', [])}
+                for b in booklists[0]
+            ]
             with open(cache_path, 'wb') as f:
-                JsonCodec().encode_to_file(f, booklists[0])
+                f.write(_json.dumps(data).encode())
         except Exception:
             pass
 
