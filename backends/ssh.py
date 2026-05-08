@@ -129,7 +129,8 @@ class SSHBackend(Backend):
                 'grep -q \'"type": "DocumentType"\' "$f" 2>/dev/null || continue; '
                 'uuid=$(basename "$f" .metadata); '
                 'name=$(grep \'"visibleName"\' "$f" | sed \'s/.*"visibleName": *"//;s/".*//\'); '
-                'printf "%s\\t%s\\n" "$uuid" "$name"; '
+                'cuuid=$(grep \'"calibreUuid"\' "$f" 2>/dev/null | sed \'s/.*"calibreUuid": *"//;s/".*//\'); '
+                'printf "%s\\t%s\\t%s\\n" "$uuid" "$name" "$cuuid"; '
                 'done'
             )
             ok, out, err = _run_ssh_capture(self.host, self.password, cmd, timeout=15)
@@ -137,9 +138,13 @@ class SSHBackend(Backend):
                 raise RuntimeError(f'SSH list_books failed. stderr={err!r}')
             books = []
             for line in out.splitlines():
-                parts = line.split('\t', 1)
-                if len(parts) == 2:
-                    books.append({'uuid': parts[0], 'visibleName': parts[1]})
+                parts = line.split('\t', 2)
+                if len(parts) >= 2:
+                    books.append({
+                        'uuid': parts[0],
+                        'visibleName': parts[1],
+                        'calibreUuid': parts[2].strip() if len(parts) > 2 and parts[2].strip() else None,
+                    })
             return books
         except Exception as e:
             raise RuntimeError(f'list_books failed: {e}') from e
@@ -189,7 +194,7 @@ class SSHBackend(Backend):
             return Result(ok=False, error=f'delete failed: {err}')
         return Result(ok=True)
 
-    def upload(self, file_path: str, filename: str, title: str = None) -> Result:
+    def upload(self, file_path: str, filename: str, title: str = None, calibre_uuid: str = None) -> Result:
         if not self._ssh_available():
             return Result(ok=False, error='ssh not found in PATH')
         try:
@@ -201,7 +206,7 @@ class SSHBackend(Backend):
             remote_base = f'{_XOCHITL_DIR}/{doc_uuid}'
             visible_name = title or os.path.splitext(filename)[0]
 
-            metadata_bytes = json.dumps({
+            meta_dict = {
                 'visibleName': visible_name,
                 'type': 'DocumentType',
                 'parent': '',
@@ -214,7 +219,10 @@ class SSHBackend(Backend):
                 'metadatamodified': False,
                 'lastOpened': '0',
                 'lastOpenedPage': 0,
-            }, indent=2).encode()
+            }
+            if calibre_uuid:
+                meta_dict['calibreUuid'] = calibre_uuid
+            metadata_bytes = json.dumps(meta_dict, indent=2).encode()
 
             content_bytes = json.dumps({
                 'fileType': ext,
@@ -265,6 +273,6 @@ class SSHBackend(Backend):
             ok, err = _run_ssh(self.host, self.password, restart_cmd, timeout=10)
             if not ok:
                 return Result(ok=False, error=f'xochitl restart failed: {err}')
-            return Result(ok=True)
+            return Result(ok=True, uuid=doc_uuid)
         except Exception as e:
             return Result(ok=False, error=str(e))

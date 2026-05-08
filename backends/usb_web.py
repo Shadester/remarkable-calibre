@@ -53,12 +53,38 @@ class USBWebBackend(Backend):
         except Exception as e:
             return Result(ok=False, error=str(e))
 
-    def upload(self, file_path: str, filename: str, title: str = None) -> Result:
+    def _existing_ids(self) -> set:
+        """Return the set of all document IDs currently on the device."""
+        ids = set()
+        queue = ['']
+        visited = set()
+        while queue:
+            folder_id = queue.pop(0)
+            if folder_id in visited:
+                continue
+            visited.add(folder_id)
+            try:
+                resp = urllib.request.urlopen(
+                    self._base_url() + '/documents/' + folder_id, timeout=self.timeout
+                )
+                for entry in json.loads(resp.read()):
+                    doc_id = entry.get('ID', '')
+                    if entry.get('Type') == 'DocumentType':
+                        ids.add(doc_id)
+                    elif entry.get('Type') == 'CollectionType' and doc_id:
+                        queue.append(doc_id)
+            except Exception:
+                break
+        return ids
+
+    def upload(self, file_path: str, filename: str, title: str = None, calibre_uuid: str = None) -> Result:
         try:
             with open(file_path, 'rb') as f:
                 content = f.read()
         except OSError as e:
             return Result(ok=False, error=str(e))
+
+        before_ids = self._existing_ids()
 
         boundary = uuid.uuid4().hex
         body = (
@@ -78,9 +104,8 @@ class USBWebBackend(Backend):
 
         try:
             resp = urllib.request.urlopen(req, timeout=self.upload_timeout)
-            if resp.status == 201:
-                return Result(ok=True)
-            return Result(ok=False, error=f'Unexpected status {resp.status}')
+            if resp.status != 201:
+                return Result(ok=False, error=f'Unexpected status {resp.status}')
         except urllib.error.HTTPError as e:
             body_excerpt = e.read(200).decode('utf-8', errors='replace')
             return Result(ok=False, error=f'HTTP {e.code}: {body_excerpt}')
@@ -88,3 +113,15 @@ class USBWebBackend(Backend):
             return Result(ok=False, error=str(e.reason))
         except Exception as e:
             return Result(ok=False, error=str(e))
+
+        # Identify the newly created document by diffing IDs.
+        new_uuid = None
+        try:
+            after_ids = self._existing_ids()
+            new_ids = after_ids - before_ids
+            if new_ids:
+                new_uuid = next(iter(new_ids))
+        except Exception:
+            pass
+
+        return Result(ok=True, uuid=new_uuid)

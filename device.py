@@ -147,20 +147,59 @@ class RemarkableDevice(DevicePlugin):
     # Book management                                                      #
     # ------------------------------------------------------------------ #
 
+    def _cache_path(self) -> str:
+        from calibre.utils.config import config_dir
+        return os.path.join(config_dir, 'plugins', 'remarkable_books.json')
+
     def books(self, oncard=None, end_session=True):
-        from calibre.devices.usbms.books import Book, BookList
+        from calibre.devices.usbms.books import Book, BookList, JsonCodec
         bl = BookList(oncard, None, self.settings())
         if oncard is not None:
             return bl
+
+        # Load cached booklist keyed by reMarkable UUID.
+        cached = {}
+        try:
+            cache_path = self._cache_path()
+            if os.path.exists(cache_path):
+                cached_bl = BookList(None, None, self.settings())
+                with open(cache_path, 'rb') as f:
+                    JsonCodec().decode_from_file(f, cached_bl)
+                for b in cached_bl:
+                    cached[b.lpath] = b
+        except Exception:
+            pass
+
         backend = self._backend()
         if not hasattr(backend, 'list_books'):
+            for b in cached.values():
+                bl.append(b)
             return bl
+
         for entry in backend.list_books():
-            book = Book('', entry.get('uuid', ''))
-            book.title = entry.get('visibleName', 'Unknown')
-            book.authors = ['Unknown']
-            book.path = entry.get('uuid', '')
+            rm_uuid = entry.get('uuid', '')
+            calibre_uuid = entry.get('calibreUuid')
+
+            if rm_uuid in cached:
+                book = cached[rm_uuid]
+                device_title = entry.get('visibleName', '')
+                if device_title:
+                    book.title = device_title
+            elif calibre_uuid:
+                book = Book('', rm_uuid)
+                book.uuid = calibre_uuid
+                book.title = entry.get('visibleName', 'Unknown')
+                book.authors = ['Unknown']
+            else:
+                book = Book('', rm_uuid)
+                book.title = entry.get('visibleName', 'Unknown')
+                book.authors = ['Unknown']
+
+            if calibre_uuid and not getattr(book, 'uuid', None):
+                book.uuid = calibre_uuid
+            book.path = rm_uuid
             bl.append(book)
+
         return bl
 
     def upload_books(self, files, names, on_card=None, end_session=True, metadata=None):
@@ -168,14 +207,22 @@ class RemarkableDevice(DevicePlugin):
         locations = []
         for i, (file_path, name) in enumerate(zip(files, names)):
             title = metadata[i].title if metadata and i < len(metadata) else None
-            result = backend.upload(file_path, name, title=title)
+            calibre_uuid = metadata[i].uuid if metadata and i < len(metadata) else None
+            result = backend.upload(file_path, name, title=title, calibre_uuid=calibre_uuid)
             if not result.ok:
                 raise OSError(f'Upload of {name!r} failed: {result.error}')
-            locations.append((name, None, None))
+            locations.append((name, result.uuid, None))
         return locations
 
     def add_books_to_metadata(self, locations, metadata, booklists):
-        pass
+        from calibre.devices.usbms.books import Book
+        for i, (name, rm_uuid, _) in enumerate(locations):
+            if not rm_uuid:
+                continue
+            meta = metadata[i] if metadata and i < len(metadata) else None
+            book = Book('', rm_uuid, other=meta)
+            book._new_book = True
+            booklists[0].add_book(book, replace_metadata=True)
 
     def delete_books(self, paths, end_session=True):
         backend = self._backend()
@@ -190,7 +237,14 @@ class RemarkableDevice(DevicePlugin):
         pass
 
     def sync_booklists(self, booklists, end_session=True):
-        pass
+        from calibre.devices.usbms.books import JsonCodec
+        try:
+            cache_path = self._cache_path()
+            os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+            with open(cache_path, 'wb') as f:
+                JsonCodec().encode_to_file(f, booklists[0])
+        except Exception:
+            pass
 
     def get_file(self, path, outfile, end_session=True):
         backend = self._backend()

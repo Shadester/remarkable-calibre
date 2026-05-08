@@ -201,5 +201,111 @@ class TestMiscMethods(unittest.TestCase):
         self.assertEqual(self.driver._last_probe_time, 0.0)
 
 
+class TestBookMatching(unittest.TestCase):
+    """upload_books → add_books_to_metadata → sync_booklists → books() round-trip."""
+
+    def setUp(self):
+        self.driver = RemarkableDevice()
+        self.port = _free_port()
+        self.server = _start_server(self.port)
+        import config
+        config.prefs['host'] = f'127.0.0.1:{self.port}'
+        config.prefs['connect_timeout_seconds'] = 2
+        config.prefs['connection_type'] = 'usb_web'
+        from tests.conftest import FakeMetadata
+        self.meta = FakeMetadata(title='Dune', authors=['Frank Herbert'], uuid='cal-uuid-dune')
+
+    def tearDown(self):
+        self.server.shutdown()
+        import config
+        config.prefs['connection_type'] = 'usb_web'
+
+    def test_upload_books_location_contains_rm_uuid(self):
+        f = tempfile.NamedTemporaryFile(delete=False, suffix='.epub')
+        f.write(b'data')
+        f.flush()
+        try:
+            locations = self.driver.upload_books(
+                [f.name], ['Dune.epub'], metadata=[self.meta]
+            )
+            # location[1] is rm_uuid; None when server doesn't return /documents/
+            self.assertEqual(len(locations), 1)
+            self.assertEqual(locations[0][0], 'Dune.epub')
+        finally:
+            os.unlink(f.name)
+
+    def test_add_books_to_metadata_populates_booklist(self):
+        from calibre.devices.usbms.books import BookList
+        bl = BookList()
+        self.driver.add_books_to_metadata(
+            [('Dune.epub', 'rm-uuid-001', None)],
+            [self.meta],
+            [bl],
+        )
+        self.assertEqual(len(bl), 1)
+        self.assertEqual(bl[0].lpath, 'rm-uuid-001')
+        self.assertEqual(bl[0].uuid, 'cal-uuid-dune')
+        self.assertEqual(bl[0].title, 'Dune')
+
+    def test_add_books_to_metadata_skips_none_uuid(self):
+        from calibre.devices.usbms.books import BookList
+        bl = BookList()
+        self.driver.add_books_to_metadata(
+            [('Dune.epub', None, None)],
+            [self.meta],
+            [bl],
+        )
+        self.assertEqual(len(bl), 0)
+
+    def test_sync_booklists_writes_cache(self):
+        from calibre.devices.usbms.books import BookList
+        from calibre.utils.config import config_dir
+        bl = BookList()
+        self.driver.add_books_to_metadata(
+            [('Dune.epub', 'rm-uuid-002', None)],
+            [self.meta],
+            [bl],
+        )
+        self.driver.sync_booklists([bl])
+        cache = self.driver._cache_path()
+        self.assertTrue(os.path.exists(cache))
+
+    def test_books_merges_cache_uuid(self):
+        from calibre.devices.usbms.books import BookList
+        # First: write a cache entry for rm-uuid-003 → cal-uuid-dune
+        bl = BookList()
+        self.driver.add_books_to_metadata(
+            [('Dune.epub', 'rm-uuid-003', None)],
+            [self.meta],
+            [bl],
+        )
+        self.driver.sync_booklists([bl])
+
+        # Now simulate books() returning that UUID from the device
+        from unittest.mock import patch, MagicMock
+        fake_backend = MagicMock()
+        fake_backend.list_books.return_value = [
+            {'uuid': 'rm-uuid-003', 'visibleName': 'Dune (Updated)', 'calibreUuid': None}
+        ]
+        with patch.object(self.driver, '_backend', return_value=fake_backend):
+            result = self.driver.books()
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0].uuid, 'cal-uuid-dune')
+        self.assertEqual(result[0].title, 'Dune (Updated)')  # device title wins
+
+    def test_books_uses_embedded_calibre_uuid_without_cache(self):
+        from unittest.mock import patch, MagicMock
+        fake_backend = MagicMock()
+        fake_backend.list_books.return_value = [
+            {'uuid': 'rm-uuid-004', 'visibleName': 'Foundation', 'calibreUuid': 'cal-uuid-asimov'}
+        ]
+        with patch.object(self.driver, '_backend', return_value=fake_backend):
+            result = self.driver.books()
+
+        self.assertEqual(result[0].uuid, 'cal-uuid-asimov')
+        self.assertEqual(result[0].title, 'Foundation')
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -214,3 +214,88 @@ def test_upload_no_ssh_binary(tmp_path):
 
     assert not result.ok
     assert 'ssh' in result.error.lower()
+
+
+# ---------------------------------------------------------------------------
+# calibre UUID embedding
+# ---------------------------------------------------------------------------
+
+def test_upload_returns_result_uuid(tmp_path):
+    epub = tmp_path / 'book.epub'
+    epub.write_bytes(b'data')
+
+    with patch('backends.ssh.shutil.which', return_value='/usr/bin/ssh'), \
+         patch('backends.ssh.subprocess.run', return_value=_ok()), \
+         patch('backends.ssh.uuid.uuid4', return_value=MagicMock(__str__=lambda s: 'my-rm-uuid')):
+        result = SSHBackend('10.11.99.1', 'pw').upload(str(epub), 'book.epub')
+
+    assert result.ok
+    assert result.uuid == 'my-rm-uuid'
+
+
+def test_upload_embeds_calibre_uuid_in_metadata(tmp_path):
+    epub = tmp_path / 'book.epub'
+    epub.write_bytes(b'data')
+
+    captured_meta = {}
+
+    def fake_run(cmd, **kwargs):
+        if cmd[0] == 'scp' and '.metadata' in cmd[-1]:
+            with open(cmd[-2], 'rb') as f:
+                captured_meta['data'] = json.loads(f.read())
+        return _ok()
+
+    with patch('backends.ssh.shutil.which', return_value='/usr/bin/ssh'), \
+         patch('backends.ssh.subprocess.run', side_effect=fake_run), \
+         patch('backends.ssh.uuid.uuid4', return_value=MagicMock(__str__=lambda s: 'rm-uuid')):
+        result = SSHBackend('10.11.99.1', 'pw').upload(
+            str(epub), 'book.epub', calibre_uuid='cal-uuid-123'
+        )
+
+    assert result.ok
+    assert captured_meta['data']['calibreUuid'] == 'cal-uuid-123'
+
+
+def test_upload_omits_calibre_uuid_when_not_provided(tmp_path):
+    epub = tmp_path / 'book.epub'
+    epub.write_bytes(b'data')
+
+    captured_meta = {}
+
+    def fake_run(cmd, **kwargs):
+        if cmd[0] == 'scp' and '.metadata' in cmd[-1]:
+            with open(cmd[-2], 'rb') as f:
+                captured_meta['data'] = json.loads(f.read())
+        return _ok()
+
+    with patch('backends.ssh.shutil.which', return_value='/usr/bin/ssh'), \
+         patch('backends.ssh.subprocess.run', side_effect=fake_run), \
+         patch('backends.ssh.uuid.uuid4', return_value=MagicMock(__str__=lambda s: 'rm-uuid')):
+        SSHBackend('10.11.99.1', 'pw').upload(str(epub), 'book.epub')
+
+    assert 'calibreUuid' not in captured_meta['data']
+
+
+def test_list_books_returns_calibre_uuid(tmp_path):
+    output = 'abc-123\tMy Book\tcal-uuid-456\n'
+
+    with patch('backends.ssh.shutil.which', return_value='/usr/bin/ssh'), \
+         patch('backends.ssh.subprocess.run',
+               return_value=subprocess.CompletedProcess([], 0, output.encode(), b'')):
+        books = SSHBackend('10.11.99.1', 'pw').list_books()
+
+    assert len(books) == 1
+    assert books[0]['uuid'] == 'abc-123'
+    assert books[0]['visibleName'] == 'My Book'
+    assert books[0]['calibreUuid'] == 'cal-uuid-456'
+
+
+def test_list_books_calibre_uuid_none_when_missing(tmp_path):
+    output = 'abc-123\tMy Book\t\n'
+
+    with patch('backends.ssh.shutil.which', return_value='/usr/bin/ssh'), \
+         patch('backends.ssh.subprocess.run',
+               return_value=subprocess.CompletedProcess([], 0, output.encode(), b'')):
+        books = SSHBackend('10.11.99.1', 'pw').list_books()
+
+    assert books[0]['calibreUuid'] is None

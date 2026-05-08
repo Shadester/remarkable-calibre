@@ -168,5 +168,66 @@ class TestUSBWebBackendUpload(unittest.TestCase):
         self.assertFalse(result.ok)
 
 
+class TestUSBWebBackendUploadUUID(unittest.TestCase):
+    """Upload UUID discovery via GET /documents/ diff."""
+
+    def setUp(self):
+        import json as _json
+        self._before = [{'ID': 'existing-id', 'Type': 'DocumentType', 'VissibleName': 'Old'}]
+        self._after = [
+            {'ID': 'existing-id', 'Type': 'DocumentType', 'VissibleName': 'Old'},
+            {'ID': 'new-id-abc', 'Type': 'DocumentType', 'VissibleName': 'New Book'},
+        ]
+        call_count = [0]
+
+        class _UUIDHandler(BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+            def do_GET(handler):
+                if handler.path.startswith('/documents'):
+                    data = self._before if call_count[0] == 0 else self._after
+                    body = _json.dumps(data).encode()
+                    handler.send_response(200)
+                    handler.send_header('Content-Type', 'application/json')
+                    handler.send_header('Content-Length', str(len(body)))
+                    handler.end_headers()
+                    handler.wfile.write(body)
+                else:
+                    handler.send_response(200)
+                    handler.end_headers()
+
+            def do_POST(handler):
+                call_count[0] += 1
+                length = int(handler.headers.get('Content-Length', 0))
+                handler.rfile.read(length)
+                handler.send_response(201)
+                handler.end_headers()
+
+        port = _free_port()
+        self.server = HTTPServer(('127.0.0.1', port), _UUIDHandler)
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+        self.backend = USBWebBackend(host=f'127.0.0.1:{port}', timeout=2)
+        self.tmp = tempfile.NamedTemporaryFile(delete=False, suffix='.epub')
+        self.tmp.write(b'data')
+        self.tmp.flush()
+
+    def tearDown(self):
+        self.server.shutdown()
+        os.unlink(self.tmp.name)
+
+    def test_upload_returns_new_uuid(self):
+        result = self.backend.upload(self.tmp.name, 'New Book.epub')
+        self.assertTrue(result.ok, result.error)
+        self.assertEqual(result.uuid, 'new-id-abc')
+
+    def test_upload_uuid_none_when_no_new_entry(self):
+        self._after[:] = self._before  # no new entry appears
+        result = self.backend.upload(self.tmp.name, 'New Book.epub')
+        self.assertTrue(result.ok)
+        self.assertIsNone(result.uuid)
+
+
 if __name__ == '__main__':
     unittest.main()
