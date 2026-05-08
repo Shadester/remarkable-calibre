@@ -18,6 +18,7 @@ EXCLUDES=(
     "tests"
     "scripts"
     "README.md"
+    "CLAUDE.md"
     "LICENSE"
     "pytest.ini"
     "remarkable.zip"

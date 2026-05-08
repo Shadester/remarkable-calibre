@@ -14,7 +14,7 @@ from calibre.devices.interface import DevicePlugin
 class RemarkableDevice(DevicePlugin):
     name = 'reMarkable'
     gui_name = 'reMarkable'
-    description = 'Send books to a USB-tethered reMarkable tablet via its USB web interface'
+    description = 'Manage books on a reMarkable tablet from Calibre via SSH or USB web interface'
     author = 'remarkablecalibre'
     version = (2, 0, 0)
     minimum_calibre_version = (6, 0, 0)
@@ -108,15 +108,39 @@ class RemarkableDevice(DevicePlugin):
     # ------------------------------------------------------------------ #
 
     def get_device_information(self, end_session=True):
-        return ('reMarkable', '', '', 'application/octet-stream')
+        backend = self._backend()
+        version = ''
+        if hasattr(backend, 'get_firmware_version'):
+            try:
+                version = backend.get_firmware_version()
+            except Exception:
+                pass
+        label = f'reMarkable {version}'.strip() if version else 'reMarkable'
+        return (label, '', '', 'application/octet-stream')
 
     def card_prefix(self, end_session=True):
         return (None, None)
 
     def total_space(self, end_session=True):
+        backend = self._backend()
+        if hasattr(backend, 'get_storage_info'):
+            try:
+                total, _ = backend.get_storage_info()
+                if total > 0:
+                    return (total, 0, 0)
+            except Exception:
+                pass
         return (2 ** 40, 0, 0)
 
     def free_space(self, end_session=True):
+        backend = self._backend()
+        if hasattr(backend, 'get_storage_info'):
+            try:
+                _, free = backend.get_storage_info()
+                if free > 0:
+                    return (free, 0, 0)
+            except Exception:
+                pass
         return (2 ** 40, 0, 0)
 
     # ------------------------------------------------------------------ #
@@ -154,7 +178,13 @@ class RemarkableDevice(DevicePlugin):
         pass
 
     def delete_books(self, paths, end_session=True):
-        raise NotImplementedError('Deleting books from the reMarkable is not supported in this version')
+        backend = self._backend()
+        if not hasattr(backend, 'delete'):
+            raise OSError('Deleting books is not supported over the USB web interface')
+        for path in paths:
+            result = backend.delete(path)
+            if not result.ok:
+                raise OSError(f'Delete of {path!r} failed: {result.error}')
 
     def remove_books_from_metadata(self, paths, booklists):
         pass
@@ -163,7 +193,12 @@ class RemarkableDevice(DevicePlugin):
         pass
 
     def get_file(self, path, outfile, end_session=True):
-        raise NotImplementedError('Downloading books from the reMarkable is not supported in this version')
+        backend = self._backend()
+        if not hasattr(backend, 'download'):
+            raise OSError('Downloading books is not supported over the USB web interface')
+        result = backend.download(path, outfile)
+        if not result.ok:
+            raise OSError(f'Download failed: {result.error}')
 
     # ------------------------------------------------------------------ #
     # Configuration                                                        #

@@ -6,7 +6,7 @@ from qt.core import (
 prefs = JSONConfig('plugins/remarkable')
 prefs.defaults['host'] = '10.11.99.1'
 prefs.defaults['connect_timeout_seconds'] = 2
-prefs.defaults['connection_type'] = 'usb_web'
+prefs.defaults['connection_type'] = 'ssh'
 prefs.defaults['ssh_password'] = ''
 
 
@@ -16,8 +16,8 @@ class ConfigWidget(QWidget):
         layout = QFormLayout(self)
 
         self._conn_type = QComboBox()
-        self._conn_type.addItem('USB web interface', 'usb_web')
-        self._conn_type.addItem('SSH (direct file copy)', 'ssh')
+        self._conn_type.addItem('SSH (recommended)', 'ssh')
+        self._conn_type.addItem('USB web interface (upload only)', 'usb_web')
         idx = self._conn_type.findData(prefs['connection_type'])
         if idx >= 0:
             self._conn_type.setCurrentIndex(idx)

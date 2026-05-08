@@ -1,3 +1,4 @@
+import json
 import os
 import uuid
 import urllib.request
@@ -16,6 +17,32 @@ class USBWebBackend(Backend):
         if self.host.startswith('http://') or self.host.startswith('https://'):
             return self.host.rstrip('/')
         return f'http://{self.host}'
+
+    def list_books(self) -> list[dict]:
+        """Return all DocumentType entries by recursively walking /documents/."""
+        books = []
+        queue = ['']
+        visited = set()
+        while queue:
+            folder_id = queue.pop(0)
+            if folder_id in visited:
+                continue
+            visited.add(folder_id)
+            url = self._base_url() + '/documents/' + folder_id
+            try:
+                resp = urllib.request.urlopen(url, timeout=self.timeout)
+                entries = json.loads(resp.read())
+            except Exception:
+                continue
+            for entry in entries:
+                entry_type = entry.get('Type', '')
+                name = entry.get('VissibleName') or entry.get('visibleName', '')
+                doc_id = entry.get('ID', '')
+                if entry_type == 'DocumentType':
+                    books.append({'uuid': doc_id, 'visibleName': name})
+                elif entry_type == 'CollectionType' and doc_id:
+                    queue.append(doc_id)
+        return books
 
     def check_connection(self) -> Result:
         try:

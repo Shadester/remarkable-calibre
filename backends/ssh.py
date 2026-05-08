@@ -37,7 +37,7 @@ def _run_ssh_capture(host: str, password: str, command: str, timeout: int = 30) 
     try:
         r = subprocess.run(
             ['ssh'] + _SSH_OPTS + [f'root@{host}', command],
-            env=env, capture_output=True, timeout=timeout,
+            env=env, capture_output=True, stdin=subprocess.DEVNULL, timeout=timeout,
         )
         return r.returncode == 0, r.stdout.decode(errors='replace'), r.stderr.decode(errors='replace')
     finally:
@@ -49,7 +49,19 @@ def _run_ssh(host: str, password: str, command: str, timeout: int = 30) -> tuple
     try:
         r = subprocess.run(
             ['ssh'] + _SSH_OPTS + [f'root@{host}', command],
-            env=env, capture_output=True, timeout=timeout,
+            env=env, capture_output=True, stdin=subprocess.DEVNULL, timeout=timeout,
+        )
+        return r.returncode == 0, r.stderr.decode(errors='replace')
+    finally:
+        os.unlink(askpass)
+
+
+def _run_scp_from_device(host: str, password: str, remote_path: str, local_path: str, timeout: int = 120) -> tuple[bool, str]:
+    env, askpass = _askpass_ctx(password)
+    try:
+        r = subprocess.run(
+            ['scp'] + _SSH_OPTS + [f'root@{host}:{remote_path}', local_path],
+            env=env, capture_output=True, stdin=subprocess.DEVNULL, timeout=timeout,
         )
         return r.returncode == 0, r.stderr.decode(errors='replace')
     finally:
@@ -61,7 +73,7 @@ def _run_scp(host: str, password: str, local_path: str, remote_path: str, timeou
     try:
         r = subprocess.run(
             ['scp'] + _SSH_OPTS + [local_path, f'root@{host}:{remote_path}'],
-            env=env, capture_output=True, timeout=timeout,
+            env=env, capture_output=True, stdin=subprocess.DEVNULL, timeout=timeout,
         )
         return r.returncode == 0, r.stderr.decode(errors='replace')
     finally:
@@ -77,23 +89,52 @@ class SSHBackend(Backend):
     def _ssh_available(self) -> bool:
         return shutil.which('ssh') is not None
 
+    def get_storage_info(self) -> tuple[int, int]:
+        """Return (total_bytes, free_bytes) for the xochitl partition."""
+        if not self._ssh_available():
+            return (0, 0)
+        ok, out, _ = _run_ssh_capture(
+            self.host, self.password,
+            "df -k /home/root/.local/share/remarkable/xochitl/ | awk 'NR==2{print $2, $4}'",
+            timeout=5,
+        )
+        if ok and out.strip():
+            parts = out.strip().split()
+            if len(parts) == 2:
+                try:
+                    return (int(parts[0]) * 1024, int(parts[1]) * 1024)
+                except ValueError:
+                    pass
+        return (0, 0)
+
+    def get_firmware_version(self) -> str:
+        if not self._ssh_available():
+            return ''
+        ok, out, _ = _run_ssh_capture(
+            self.host, self.password,
+            'cat /etc/version 2>/dev/null',
+            timeout=5,
+        )
+        return out.strip() if ok else ''
+
     def list_books(self) -> list[dict]:
         """Return a list of dicts with uuid/visibleName for all non-deleted DocumentType entries."""
         if not self._ssh_available():
             return []
         try:
             cmd = (
-                'grep -rl "DocumentType" /home/root/.local/share/remarkable/xochitl/ | '
-                'while read f; do '
-                '  grep -q \'"deleted": true\' "$f" && continue; '
-                '  uuid=$(basename "$f" .metadata); '
-                '  name=$(grep "visibleName" "$f" | sed \'s/.*visibleName.*: *"//;s/".*//\'); '
-                '  printf "%s\\t%s\\n" "$uuid" "$name"; '
+                'for f in /home/root/.local/share/remarkable/xochitl/*.metadata; do '
+                '[ -f "$f" ] || continue; '
+                'grep -q \'"deleted": true\' "$f" 2>/dev/null && continue; '
+                'grep -q \'"type": "DocumentType"\' "$f" 2>/dev/null || continue; '
+                'uuid=$(basename "$f" .metadata); '
+                'name=$(grep \'"visibleName"\' "$f" | sed \'s/.*"visibleName": *"//;s/".*//\'); '
+                'printf "%s\\t%s\\n" "$uuid" "$name"; '
                 'done'
             )
             ok, out, err = _run_ssh_capture(self.host, self.password, cmd, timeout=15)
-            if not out.strip():
-                raise RuntimeError(f'SSH list_books got no output. ok={ok}, stderr={err!r}')
+            if not ok:
+                raise RuntimeError(f'SSH list_books failed. stderr={err!r}')
             books = []
             for line in out.splitlines():
                 parts = line.split('\t', 1)
@@ -111,6 +152,42 @@ class SSHBackend(Backend):
             return Result(ok=ok, error=err if not ok else None)
         except Exception as e:
             return Result(ok=False, error=str(e))
+
+    def download(self, uuid: str, outfile) -> Result:
+        if not self._ssh_available():
+            return Result(ok=False, error='ssh not found in PATH')
+        for ext in ('epub', 'pdf'):
+            remote_path = f'{_XOCHITL_DIR}/{uuid}.{ext}'
+            tmp_fd, tmp_path = tempfile.mkstemp(suffix=f'.{ext}')
+            os.close(tmp_fd)
+            try:
+                ok, err = _run_scp_from_device(self.host, self.password, remote_path, tmp_path)
+                if ok:
+                    with open(tmp_path, 'rb') as f:
+                        outfile.write(f.read())
+                    return Result(ok=True)
+            finally:
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+        return Result(ok=False, error=f'No epub or pdf found for {uuid!r} on device')
+
+    def delete(self, uuid: str) -> Result:
+        if not self._ssh_available():
+            return Result(ok=False, error='ssh not found in PATH')
+        cmd = (
+            f'rm -f {shlex.quote(f"{_XOCHITL_DIR}/{uuid}.epub")} '
+            f'{shlex.quote(f"{_XOCHITL_DIR}/{uuid}.pdf")} '
+            f'{shlex.quote(f"{_XOCHITL_DIR}/{uuid}.metadata")} '
+            f'{shlex.quote(f"{_XOCHITL_DIR}/{uuid}.content")} '
+            f'{shlex.quote(f"{_XOCHITL_DIR}/{uuid}.pagedata")} '
+            f'2>/dev/null; systemctl --no-block restart xochitl'
+        )
+        ok, err = _run_ssh(self.host, self.password, cmd, timeout=10)
+        if not ok:
+            return Result(ok=False, error=f'delete failed: {err}')
+        return Result(ok=True)
 
     def upload(self, file_path: str, filename: str, title: str = None) -> Result:
         if not self._ssh_available():

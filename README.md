@@ -1,49 +1,71 @@
-# Send to reMarkable — Calibre Plugin
+# reMarkable — Calibre Plugin
 
-A Calibre **Device Driver** plugin that makes a USB-tethered reMarkable tablet appear natively in Calibre's device panel — just like a Kindle or Kobo. Books are uploaded via the tablet's built-in USB web interface; no cloud account or third-party tools required.
+A Calibre **Device Driver** plugin that makes a reMarkable tablet appear natively in Calibre's device panel — just like a Kindle or Kobo. Upload books, browse your library on the device, download files, and delete books, all without a cloud account or third-party tools.
+
+## Features
+
+| Feature | SSH | USB web |
+|---|---|---|
+| Browse device library | ✓ | ✓ |
+| Upload EPUB / PDF | ✓ | ✓ |
+| Download book | ✓ | — |
+| Delete book | ✓ | — |
+| Real disk space info | ✓ | — |
+| Firmware version | ✓ | — |
 
 ## Requirements
 
 - Calibre 6+
-- reMarkable tablet (rM1, rM2, or Paper Pro) with **USB web interface enabled**  
-  (Settings → Storage → USB web interface)
-- USB cable connecting the tablet to your computer
+- reMarkable tablet (rM1, rM2, or Paper Pro)
+- USB cable
+
+**For SSH (recommended):** Developer mode must be enabled on the tablet.  
+**For USB web:** USB web interface must be enabled (Settings → Storage → USB web interface).
 
 ## Installation
 
-1. Download the latest `remarkable.zip` from Releases, or build it yourself (see below).
+1. Download the latest `remarkable.zip` from [Releases](../../releases).
 2. In Calibre: **Preferences → Plugins → Load plugin from file** → select `remarkable.zip`.
 3. Restart Calibre.
-
-## Usage
-
-1. Connect your reMarkable via USB and enable the USB web interface on the tablet.
-2. Within a few seconds, **reMarkable** appears in Calibre's device panel.
-3. Select one or more books in the library → **Send to device**.
-4. Calibre automatically converts books to EPUB or PDF if needed, then uploads them.
-
-## Supported formats
-
-The plugin tells Calibre it accepts **EPUB** and **PDF**. Calibre converts anything else (AZW3, MOBI, etc.) before uploading — no manual conversion step required.
+4. Configure the plugin (see below), then connect your tablet via USB.
 
 ## Configuration
 
 Go to **Preferences → Plugins → reMarkable → Customize**:
 
 | Setting | Default | Description |
-|---------|---------|-------------|
-| Connection type | USB web interface | How files are delivered to the tablet (see below). |
-| Tablet host | `10.11.99.1` | IP address of the tablet over USB. Override for SSH tunnels or custom network setups. |
-| Connection timeout | 2 s | How long to wait when probing the device. Increase on slow connections. |
-| SSH password | _(empty)_ | Required when using the SSH backend (see below). |
+|---|---|---|
+| Connection type | SSH | How to communicate with the tablet. |
+| Tablet host | `10.11.99.1` | IP address of the tablet over USB. |
+| Connection timeout | 2 s | How long to wait when probing. |
+| SSH password | _(empty)_ | Required for SSH — see below. |
 
-### Connection types
+### SSH (recommended)
 
-**USB web interface** (default): Uses the tablet's built-in HTTP upload endpoint. Requires **USB web interface** to be enabled on the tablet (Settings → Storage → USB web interface). No password needed.
+SSH gives full access: browse, upload, download, and delete.
 
-**SSH (direct file copy)**: Copies files directly into the tablet's document store over SSH and restarts the viewer. Requires **developer mode** enabled on the tablet. Find the SSH password under **Settings → Help → Copyrights and licenses** (scroll to the GPL Notice section). Requires `paramiko` to be available in Calibre's Python environment.
+1. On the tablet, go to **Settings → Security** and enable **Developer mode**.
+2. Find your SSH password under **Settings → Help → Copyrights and licenses** (scroll to the GPL Notice section).
+3. Enter the password in the plugin's **SSH password** field.
 
-> **Note:** After switching connection type, reconnect the device (eject and re-plug) for the change to take effect.
+The plugin connects as `root@10.11.99.1` — the standard reMarkable USB address.
+
+### USB web interface (upload only)
+
+The USB web interface only supports browsing the library and uploading files. Downloading and deleting books require SSH.
+
+1. On the tablet, go to **Settings → Storage** and enable **USB web interface**.
+2. Select **USB web interface (upload only)** in the plugin's connection type.
+3. No password needed.
+
+## Usage
+
+1. Connect your reMarkable via USB cable.
+2. Within a few seconds, **reMarkable** appears in Calibre's device panel.
+3. The device panel lists all books currently on the tablet.
+4. Select books in the library and click **Send to device** to upload. Calibre automatically converts other formats (AZW3, MOBI, etc.) to EPUB or PDF before uploading.
+5. Right-click a book in the device panel to **Delete from device**.
+6. Double-click a book in the device panel to **View** (download and open locally).
 
 ## Building from Source
 
@@ -51,7 +73,7 @@ Go to **Preferences → Plugins → reMarkable → Customize**:
 scripts/build.sh
 ```
 
-Produces `remarkable.zip` in the repo root. Install it via Calibre's plugin loader or:
+Produces `remarkable.zip` in the repo root. Install via Calibre's plugin loader or:
 
 ```bash
 calibre-customize -a remarkable.zip
@@ -60,12 +82,7 @@ calibre-customize -a remarkable.zip
 ## Running Tests
 
 ```bash
-python -m venv .venv && .venv/bin/pip install pytest
-.venv/bin/python -m pytest tests/
+python -m venv .venv && source .venv/bin/activate
+pip install pytest
+pytest tests/
 ```
-
-## Roadmap
-
-- v3: reMarkable Cloud API backend (no USB cable required)
-- v3: List and delete device books through Calibre
-- v3+: Pull annotated PDFs back into Calibre
