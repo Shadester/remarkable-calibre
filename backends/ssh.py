@@ -93,15 +93,15 @@ class SSHBackend(Backend):
             )
             ok, out, err = _run_ssh_capture(self.host, self.password, cmd, timeout=15)
             if not out.strip():
-                return []
+                raise RuntimeError(f'SSH list_books got no output. ok={ok}, stderr={err!r}')
             books = []
             for line in out.splitlines():
                 parts = line.split('\t', 1)
                 if len(parts) == 2:
                     books.append({'uuid': parts[0], 'visibleName': parts[1]})
             return books
-        except Exception:
-            return []
+        except Exception as e:
+            raise RuntimeError(f'list_books failed: {e}') from e
 
     def check_connection(self) -> Result:
         if not self._ssh_available():
