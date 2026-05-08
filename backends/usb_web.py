@@ -7,9 +7,10 @@ from .base import Backend, Result
 
 
 class USBWebBackend(Backend):
-    def __init__(self, host: str = '10.11.99.1', timeout: int = 2):
+    def __init__(self, host: str = '10.11.99.1', timeout: int = 2, upload_timeout: int = 300):
         self.host = host
         self.timeout = timeout
+        self.upload_timeout = upload_timeout
 
     def _base_url(self) -> str:
         if self.host.startswith('http://') or self.host.startswith('https://'):
@@ -49,7 +50,7 @@ class USBWebBackend(Backend):
         req.add_header('Content-Length', str(len(body)))
 
         try:
-            resp = urllib.request.urlopen(req, timeout=self.timeout)
+            resp = urllib.request.urlopen(req, timeout=self.upload_timeout)
             if resp.status == 201:
                 return Result(ok=True)
             return Result(ok=False, error=f'Unexpected status {resp.status}')
