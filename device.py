@@ -132,14 +132,11 @@ class RemarkableDevice(DevicePlugin):
         if not hasattr(backend, 'list_books'):
             return bl
         for entry in backend.list_books():
-            try:
-                book = Book('', entry.get('uuid', ''))
-                book.title = entry.get('visibleName', 'Unknown')
-                book.authors = ['Unknown']
-                book.path = entry.get('uuid', '')
-                bl.append(book)
-            except Exception:
-                continue
+            book = Book('', entry.get('uuid', ''))
+            book.title = entry.get('visibleName', 'Unknown')
+            book.authors = ['Unknown']
+            book.path = entry.get('uuid', '')
+            bl.append(book)
         return bl
 
     def upload_books(self, files, names, on_card=None, end_session=True, metadata=None):
