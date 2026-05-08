@@ -125,7 +125,7 @@ class RemarkableDevice(DevicePlugin):
 
     def books(self, oncard=None, end_session=True):
         from calibre.devices.usbms.books import BookList
-        return BookList()
+        return BookList(oncard, None, self.settings())
 
     def upload_books(self, files, names, on_card=None, end_session=True, metadata=None):
         backend = self._backend()
