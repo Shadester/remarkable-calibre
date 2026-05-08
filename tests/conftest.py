@@ -19,7 +19,6 @@ for _mod in [
     'calibre.devices.usbms.books',
     'qt',
     'qt.core',
-    'paramiko',
 ]:
     sys.modules.setdefault(_mod, MagicMock())
 

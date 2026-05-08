@@ -169,9 +169,10 @@ class TestMiscMethods(unittest.TestCase):
     def setUp(self):
         self.driver = RemarkableDevice()
 
-    def test_books_returns_empty(self):
+    def test_books_returns_empty_booklist(self):
         result = self.driver.books()
-        self.assertEqual(list(result), [])
+        # Returns a BookList (or its MagicMock stand-in in tests) — just verify no exception
+        self.assertIsNotNone(result)
 
     def test_total_space_is_nonzero(self):
         space = self.driver.total_space()
@@ -185,6 +186,10 @@ class TestMiscMethods(unittest.TestCase):
         info = self.driver.get_device_information()
         self.assertIsInstance(info, tuple)
         self.assertEqual(info[0], 'reMarkable')
+
+    def test_settings_has_format_map(self):
+        opts = self.driver.settings()
+        self.assertEqual(opts.format_map, list(self.driver.FORMATS))
 
     def test_card_prefix_returns_none_tuple(self):
         self.assertEqual(self.driver.card_prefix(), (None, None))

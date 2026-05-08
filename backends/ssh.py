@@ -1,71 +1,96 @@
-import io
+import base64
 import json
 import os
+import shlex
+import shutil
+import stat
+import subprocess
+import tempfile
 import time
 import uuid
 
 from .base import Backend, Result
 
 _XOCHITL_DIR = '/home/root/.local/share/remarkable/xochitl'
+_SSH_OPTS = [
+    '-o', 'StrictHostKeyChecking=no',
+    '-o', 'NumberOfPasswordPrompts=1',
+    '-o', 'BatchMode=no',
+    '-o', 'ConnectTimeout=5',
+]
 
-try:
-    import paramiko
-    _PARAMIKO_AVAILABLE = True
-except ImportError:
-    _PARAMIKO_AVAILABLE = False
+
+def _askpass_ctx(password: str):
+    """Context manager that writes a temp askpass script and returns the augmented env."""
+    f = tempfile.NamedTemporaryFile('w', suffix='.sh', delete=False)
+    f.write(f'#!/bin/sh\nprintf "%s" {shlex.quote(password)}\n')
+    f.close()
+    os.chmod(f.name, stat.S_IRWXU)
+    env = os.environ.copy()
+    env['SSH_ASKPASS'] = f.name
+    env['SSH_ASKPASS_REQUIRE'] = 'force'
+    return env, f.name
+
+
+def _run_ssh(host: str, password: str, command: str, timeout: int = 30) -> tuple[bool, str]:
+    env, askpass = _askpass_ctx(password)
+    try:
+        r = subprocess.run(
+            ['ssh'] + _SSH_OPTS + [f'root@{host}', command],
+            env=env, capture_output=True, timeout=timeout,
+        )
+        return r.returncode == 0, r.stderr.decode(errors='replace')
+    finally:
+        os.unlink(askpass)
+
+
+def _run_scp(host: str, password: str, local_path: str, remote_path: str, timeout: int = 120) -> tuple[bool, str]:
+    env, askpass = _askpass_ctx(password)
+    try:
+        r = subprocess.run(
+            ['scp'] + _SSH_OPTS + [local_path, f'root@{host}:{remote_path}'],
+            env=env, capture_output=True, timeout=timeout,
+        )
+        return r.returncode == 0, r.stderr.decode(errors='replace')
+    finally:
+        os.unlink(askpass)
 
 
 class SSHBackend(Backend):
-    def __init__(self, host: str = '10.11.99.1', password: str = '', timeout: int = 2, username: str = 'root'):
+    def __init__(self, host: str = '10.11.99.1', password: str = '', timeout: int = 2):
         self.host = host
         self.password = password
         self.timeout = timeout
-        self.username = username
 
-    def _connect(self):
-        if not _PARAMIKO_AVAILABLE:
-            raise RuntimeError('paramiko is required for SSH backend but is not installed')
-        client = paramiko.SSHClient()
-        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        client.connect(
-            self.host,
-            username=self.username,
-            password=self.password,
-            timeout=self.timeout,
-            banner_timeout=self.timeout,
-            auth_timeout=self.timeout,
-            look_for_keys=False,
-            allow_agent=False,
-        )
-        return client
+    def _ssh_available(self) -> bool:
+        return shutil.which('ssh') is not None
 
     def check_connection(self) -> Result:
-        if not _PARAMIKO_AVAILABLE:
-            return Result(ok=False, error='paramiko is required for SSH backend but is not installed')
+        if not self._ssh_available():
+            return Result(ok=False, error='ssh not found in PATH')
         try:
-            client = self._connect()
-            client.close()
-            return Result(ok=True)
+            ok, err = _run_ssh(self.host, self.password, 'true', timeout=self.timeout + 3)
+            return Result(ok=ok, error=err if not ok else None)
         except Exception as e:
             return Result(ok=False, error=str(e))
 
     def upload(self, file_path: str, filename: str) -> Result:
-        if not _PARAMIKO_AVAILABLE:
-            return Result(ok=False, error='paramiko is required for SSH backend but is not installed')
+        if not self._ssh_available():
+            return Result(ok=False, error='ssh not found in PATH')
         try:
-            doc_uuid = str(uuid.uuid4())
             ext = os.path.splitext(filename)[1].lstrip('.').lower()
             if ext not in ('epub', 'pdf'):
                 return Result(ok=False, error=f'SSH backend only supports epub and pdf, got {ext!r}')
 
+            doc_uuid = str(uuid.uuid4())
+            remote_base = f'{_XOCHITL_DIR}/{doc_uuid}'
             visible_name = os.path.splitext(filename)[0]
-            last_modified = str(int(time.time() * 1000))
 
-            metadata = {
+            metadata_bytes = json.dumps({
                 'visibleName': visible_name,
                 'type': 'DocumentType',
                 'parent': '',
-                'lastModified': last_modified,
+                'lastModified': str(int(time.time() * 1000)),
                 'version': 0,
                 'deleted': False,
                 'pinned': False,
@@ -74,8 +99,9 @@ class SSHBackend(Backend):
                 'metadatamodified': False,
                 'lastOpened': '0',
                 'lastOpenedPage': 0,
-            }
-            content = {
+            }, indent=2).encode()
+
+            content_bytes = json.dumps({
                 'fileType': ext,
                 'pageCount': 0,
                 'pages': [],
@@ -88,25 +114,27 @@ class SSHBackend(Backend):
                 'orientation': 'portrait',
                 'textAlignment': 'justify',
                 'formatVersion': 1,
-            }
+            }, indent=2).encode()
 
-            client = self._connect()
-            try:
-                sftp = client.open_sftp()
-                sftp.put(file_path, f'{_XOCHITL_DIR}/{doc_uuid}.{ext}')
-                _sftp_write_json(sftp, f'{_XOCHITL_DIR}/{doc_uuid}.metadata', metadata)
-                _sftp_write_json(sftp, f'{_XOCHITL_DIR}/{doc_uuid}.content', content)
-                sftp.close()
-                client.exec_command('systemctl restart xochitl')
-            finally:
-                client.close()
+            # SCP the book file
+            ok, err = _run_scp(self.host, self.password, file_path, f'{remote_base}.{ext}')
+            if not ok:
+                return Result(ok=False, error=f'scp failed: {err}')
+
+            # Write both JSON sidecars and restart xochitl in a single SSH connection
+            meta_b64 = base64.b64encode(metadata_bytes).decode()
+            content_b64 = base64.b64encode(content_bytes).decode()
+            meta_path = shlex.quote(f'{remote_base}.metadata')
+            content_path = shlex.quote(f'{remote_base}.content')
+            compound = (
+                f'echo {shlex.quote(meta_b64)} | base64 -d > {meta_path} && '
+                f'echo {shlex.quote(content_b64)} | base64 -d > {content_path} && '
+                f'systemctl restart xochitl'
+            )
+            ok, err = _run_ssh(self.host, self.password, compound, timeout=20)
+            if not ok:
+                return Result(ok=False, error=f'post-copy setup failed: {err}')
 
             return Result(ok=True)
         except Exception as e:
             return Result(ok=False, error=str(e))
-
-
-def _sftp_write_json(sftp, remote_path: str, data: dict):
-    payload = json.dumps(data, indent=2).encode()
-    with sftp.open(remote_path, 'wb') as f:
-        f.write(payload)

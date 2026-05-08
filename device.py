@@ -1,6 +1,7 @@
 import os
 import sys
 import time
+import types
 
 # Make intra-plugin imports work both inside Calibre and in tests
 _plugin_dir = os.path.dirname(os.path.abspath(__file__))
@@ -123,9 +124,8 @@ class RemarkableDevice(DevicePlugin):
     # ------------------------------------------------------------------ #
 
     def books(self, oncard=None, end_session=True):
-        # We don't list device contents in v2 — the rM USB web interface
-        # only exposes an HTML page, not a structured document list.
-        return []
+        from calibre.devices.usbms.books import BookList
+        return BookList()
 
     def upload_books(self, files, names, on_card=None, end_session=True, metadata=None):
         backend = self._backend()
@@ -155,6 +155,9 @@ class RemarkableDevice(DevicePlugin):
     # ------------------------------------------------------------------ #
     # Configuration                                                        #
     # ------------------------------------------------------------------ #
+
+    def settings(self):
+        return types.SimpleNamespace(format_map=list(self.FORMATS))
 
     def is_customizable(self):
         return True
