@@ -30,10 +30,10 @@ class RemarkableDevice(DevicePlugin):
     HIDE_FORMATS_CONFIG_BOX = True
     SUPPORTS_SUB_DIRS = False
 
-    # Required but unused (no USB ID matching needed)
-    VENDOR_ID = [0]
-    PRODUCT_ID = [0]
-    BCD = [0]
+    # Invalid USB IDs so Calibre's USB scanner never matches this driver
+    VENDOR_ID = [0xffff]
+    PRODUCT_ID = [0xffff]
+    BCD = [0xffff]
 
     # Internal state
     _last_probe_time = 0.0
@@ -74,6 +74,9 @@ class RemarkableDevice(DevicePlugin):
     # ------------------------------------------------------------------ #
     # Connection lifecycle                                                 #
     # ------------------------------------------------------------------ #
+
+    def reset(self, key='-1', log_packets=False, report_progress=None, detected_device=None):
+        self.report_progress = report_progress if report_progress else lambda x, y: x
 
     def open(self, connected_device, library_uuid):
         pass
