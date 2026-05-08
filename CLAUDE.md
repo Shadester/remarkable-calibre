@@ -13,6 +13,13 @@ pipx run pytest tests/         # run tests (no venv needed)
 
 Install into Calibre: **Preferences → Plugins → Load plugin from file → remarkable.zip**, then restart Calibre.
 
+## Releasing
+
+```bash
+bash scripts/build.sh
+gh release create vX.Y.Z remarkable.zip --repo Shadester/remarkable-calibre --title "vX.Y.Z" --notes "Release notes here"
+```
+
 ## Structure
 
 ```
