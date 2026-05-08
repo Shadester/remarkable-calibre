@@ -8,6 +8,7 @@ A Calibre **Device Driver** plugin that makes a reMarkable tablet appear nativel
 |---|---|---|
 | Browse device library | ✓ | ✓ |
 | Upload EPUB / PDF | ✓ | ✓ |
+| "On device" indicator in library | ✓ | ✓ |
 | Download book | ✓ | — |
 | Delete book | ✓ | — |
 | Real disk space info | ✓ | — |
@@ -82,7 +83,5 @@ calibre-customize -a remarkable.zip
 ## Running Tests
 
 ```bash
-python -m venv .venv && source .venv/bin/activate
-pip install pytest
-pytest tests/
+pipx run pytest tests/
 ```
