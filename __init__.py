@@ -1,22 +1,11 @@
-from calibre.customize import InterfaceActionBase
+import os
+import sys
 
+# Ensure the plugin's own directory is on sys.path so `device`, `config`, and
+# `backends` are importable both inside Calibre (zip-extracted) and in tests.
+_here = os.path.dirname(os.path.abspath(__file__))
+if _here not in sys.path:
+    sys.path.insert(0, _here)
 
-class SendToRemarkablePlugin(InterfaceActionBase):
-    name = 'Send to reMarkable'
-    description = 'Send selected books to a USB-tethered reMarkable tablet'
-    supported_platforms = ['windows', 'osx', 'linux']
-    author = 'remarkablecalibre'
-    version = (1, 0, 0)
-    minimum_calibre_version = (6, 0, 0)
-
-    actual_plugin = 'calibre_plugins.remarkable.action:SendToRemarkableAction'
-
-    def is_customizable(self):
-        return True
-
-    def config_widget(self):
-        from calibre_plugins.remarkable.config import ConfigWidget
-        return ConfigWidget()
-
-    def save_settings(self, config_widget):
-        config_widget.commit()
+from calibre.devices.interface import DevicePlugin  # noqa: F401
+from device import RemarkableDevice  # noqa: F401

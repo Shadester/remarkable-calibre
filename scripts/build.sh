@@ -10,6 +10,7 @@ cd "$REPO_ROOT"
 EXCLUDES=(
     ".git"
     ".venv"
+    ".claude"
     ".gitignore"
     ".pytest_cache"
     "__pycache__"

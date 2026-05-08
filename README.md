@@ -1,11 +1,12 @@
 # Send to reMarkable — Calibre Plugin
 
-A Calibre plugin that sends books from your library to a USB-tethered reMarkable tablet via its built-in USB web interface.
+A Calibre **Device Driver** plugin that makes a USB-tethered reMarkable tablet appear natively in Calibre's device panel — just like a Kindle or Kobo. Books are uploaded via the tablet's built-in USB web interface; no cloud account or third-party tools required.
 
 ## Requirements
 
 - Calibre 6+
-- reMarkable tablet with **USB web interface enabled** (Settings → Storage → USB web interface)
+- reMarkable tablet (rM1, rM2, or Paper Pro) with **USB web interface enabled**  
+  (Settings → Storage → USB web interface)
 - USB cable connecting the tablet to your computer
 
 ## Installation
@@ -14,25 +15,25 @@ A Calibre plugin that sends books from your library to a USB-tethered reMarkable
 2. In Calibre: **Preferences → Plugins → Load plugin from file** → select `remarkable.zip`.
 3. Restart Calibre.
 
-A **Send to reMarkable** action appears in the toolbar and under the **Books** menu.
-
 ## Usage
 
-1. Select one or more books in Calibre's library view.
-2. Click **Send to reMarkable** (or use the menu: **Books → Send to reMarkable**).
-3. The plugin will upload the best available format (EPUB preferred, then PDF) for each book.
-4. A summary shows which books were sent, which failed, and which were skipped (no supported format found).
+1. Connect your reMarkable via USB and enable the USB web interface on the tablet.
+2. Within a few seconds, **reMarkable** appears in Calibre's device panel.
+3. Select one or more books in the library → **Send to device**.
+4. Calibre automatically converts books to EPUB or PDF if needed, then uploads them.
+
+## Supported formats
+
+The plugin tells Calibre it accepts **EPUB** and **PDF**. Calibre converts anything else (AZW3, MOBI, etc.) before uploading — no manual conversion step required.
 
 ## Configuration
 
-Go to **Preferences → Plugins → Send to reMarkable → Customize**:
+Go to **Preferences → Plugins → reMarkable → Customize**:
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| Host | `10.11.99.1` | IP of the tablet's USB web interface. |
-| Format priority | `EPUB, PDF` | Order of preference when multiple formats exist. |
-| On no supported format | Skip | What to do when a book has no EPUB or PDF. |
-| Connection timeout | 2 s | How long to wait when checking connectivity. |
+| Host | `10.11.99.1` | IP of the tablet's USB web interface. Override if you're using an SSH tunnel or custom network setup. |
+| Connection timeout | 2 s | How long to wait when probing the device. Increase on slow USB connections. |
 
 ## Building from Source
 
@@ -49,11 +50,12 @@ calibre-customize -a remarkable.zip
 ## Running Tests
 
 ```bash
-pytest tests/
+python -m venv .venv && .venv/bin/pip install pytest
+.venv/bin/python -m pytest tests/
 ```
 
 ## Roadmap
 
-- v2: reMarkable Cloud API backend (no USB cable required)
-- v2: Custom column "On reMarkable" to track sent books
-- v2+: Pull annotated PDFs back into Calibre
+- v3: reMarkable Cloud API backend (no USB cable required)
+- v3: List and delete device books through Calibre
+- v3+: Pull annotated PDFs back into Calibre
